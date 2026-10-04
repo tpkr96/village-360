@@ -262,10 +262,64 @@ Village Resident, Field Officer, Donor and Analyst features are all variations o
 
 ---
 
-## 10. What comes next
+## 10. Step 4: UI/UX, and the ideas behind it
+
+Step 4 added no new game rules except one helper. It's about making decisions and their
+consequences easier to see. Each feature teaches one technique.
+
+### "Before" and "after": snapshots
+To show what a month changed, `app.js` takes a **snapshot** right before advancing:
+
+```js
+const before = takeSnapshot(state); // a frozen copy of the numbers
+advanceMonth(state);                // the state changes
+// the report compares state with `before` → "Water 38 → 63 (+25)"
+```
+
+The same snapshot also drives the floating "+7" numbers on the map. Comparing two copies of
+data is called **diffing**, and it's how version control and React work out what changed.
+
+### Warnings before you commit: a pure function
+`planningWarnings(state)` in `gameLogic.js` looks for likely mistakes (a neglected village,
+idle money, a project that can't finish) and **returns a list without changing anything**.
+A function like that is called **pure**: same input, same output, no side effects. That makes it
+easy to test (see the "Planning warnings…" tests) and safe to call as often as we like.
+
+### Animations when the screen is rebuilt every time
+Since `render()` throws away the old HTML, the browser can't animate a bar "from 40% to 55%"
+on its own. `ui.js` solves this with a memory of the last values (`previousValues`):
+
+1. Draw the bar at its **old** width, with the new width saved in `data-to`.
+2. Wait two animation frames (`requestAnimationFrame`) so the browser paints the old width.
+3. Set the new width. The CSS `transition: width 0.6s` animates the change.
+
+Numbers that changed get a `flash-up` or `flash-down` class, which runs a CSS `@keyframes`
+animation. Players who turn on "reduce motion" in their operating system get no animations,
+via the `prefers-reduced-motion` rule in `style.css`.
+
+### The tutorial spotlight
+The tutorial measures where an element is on screen with `getBoundingClientRect()`, then puts
+a box exactly over it. The dark overlay is that box's **giant shadow**:
+`box-shadow: 0 0 0 9999px rgba(...)`. It darkens everything except the box itself. The card is
+placed below the target, or above it if there's no room. `positionTutorial()` runs again
+whenever you scroll or resize.
+
+### Game state vs preferences
+"Has this player seen the tutorial?" isn't part of the game, so it isn't stored in `state`.
+It's saved separately with `savePreference()` in `storage.js`. Keep this distinction in mind:
+**state** is the game itself; **preferences** are about the person playing.
+
+### Migrations: keeping old saves working
+Step 4 added `villageIndexHistory` to the state. Saves from Step 3 don't have it, so
+`migrateState()` in `storage.js` fills it in when an old save loads. Databases do the same
+thing ("schema migrations") whenever the shape of the data changes.
+
+---
+
+## 11. What comes next
 
 | Step | What we'll add |
 |---|---|
-| 4. UI/UX | Tutorial hints, animations when numbers change, sound toggle, better charts |
+| ~~4. UI/UX~~ | ✅ Tutorial, advance check, before/after reports, animations, trend charts, recommendations |
 | 5. Mechanics | More villages, quarterly donor reviews, staff hiring, multi-year mode, difficulty levels |
 | 6. AI | Field Officer reports, Village Resident chat, Donor review, Analyst (needs a small Flask backend) |

@@ -57,6 +57,25 @@ const STAT_LABELS = {
   satisfaction: "Community Satisfaction",
 };
 
+const STAT_SHORT = {
+  education: "Edu",
+  health: "Health",
+  livelihood: "Liveli.",
+  water: "Water",
+  infrastructure: "Infra",
+  satisfaction: "Satisf.",
+};
+
+// Shown as tooltips, so players learn how indicators are connected.
+const STAT_HELP = {
+  education: "Schooling and skills. Raised by school, lab, learning-centre and youth projects.",
+  health: "Health of residents. Falls by 1 every month while Water is below 40.",
+  livelihood: "Incomes and jobs. Livelihood projects are weaker where Water is below 45, and market shocks hit them.",
+  water: "Access to safe drinking water. Below 40 causes illness every month.",
+  infrastructure: "Roads, buildings and power. Below 45, the Digital Learning Lab works poorly.",
+  satisfaction: "Community trust in your programme. Falls by 2 each month a village has no active projects.",
+};
+
 // Beneficiary categories — fictional aggregate counts only, never real people.
 const BENEFICIARY_KEYS = ["women", "youth", "students", "farmers", "households", "community"];
 

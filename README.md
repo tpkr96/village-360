@@ -8,6 +8,8 @@ and month counts, and there is no perfect strategy.
 
 ## How to play
 
+First time? A short guided tutorial walks you through the screen (replay it any time from **?**).
+
 1. **Inspect** a village on the district map: education, health, livelihood, water,
    infrastructure and community satisfaction.
 2. **Plan interventions.** Choose from 12 projects (RO plants, school repairs, sewing units,
@@ -38,7 +40,7 @@ The game saves automatically in your browser (`localStorage`).
 
 ## Tests
 
-Open **`tests/test.html`** in a browser. It runs 25 checks on the game rules, including
+Open **`tests/test.html`** in a browser. It runs 32 checks on the game rules, including
 a balance simulation of 900 automatic games:
 
 | Strategy | Average score |
@@ -72,7 +74,8 @@ New to the code? Read **[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)**.
 ## Roadmap
 
 - [x] **v1: Playable MVP:** 3 villages, 6 months, 12 interventions, 5 events, scoring, save/load
-- [ ] Better UI/UX: tutorial, animations, richer charts
+- [x] **UI/UX:** guided tutorial, "before you advance" check, before/after month reports,
+  animated bars and numbers, village trend charts, project recommendations and sorting
 - [ ] More mechanics: more villages, donor reviews, staff hiring, difficulty levels
 - [ ] v2: JavaScript modules, chart library, cleaner state management
 - [ ] v3: Python + Flask backend

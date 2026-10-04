@@ -223,6 +223,65 @@ test("The game ends after month 6 with a score; late projects are unfinished", (
   expect(typeof f.rating === "string" && f.reasons.length >= 6, "rating and reasons present");
 });
 
+// ---------- Step 4 additions ----------
+
+test("Planning warnings flag villages with no projects", () => {
+  const s = newGame();
+  startProject(s, "rampur", "vdc");
+  const texts = planningWarnings(s).map((w) => w.text);
+  expect(texts.some((t) => t.startsWith("Mallapur has no active projects")), "Mallapur should be flagged");
+  expect(!texts.some((t) => t.startsWith("Rampur has no active projects")), "Rampur has a project");
+  expect(texts.some((t) => t.includes("Unsafe water in Chintalapally")), "Chintalapally water (38) should be flagged");
+});
+
+test("No water warning when a water project finishes this month", () => {
+  const s = newGame();
+  startProject(s, "chintalapally", "ro_plant");
+  expect(!planningWarnings(s).some((w) => w.text.includes("Unsafe water in Chintalapally")), "RO plant fixes it first");
+});
+
+test("Planning warnings flag projects that can't finish", () => {
+  const s = newGame();
+  s.month = 5;
+  startProject(s, "mallapur", "pipeline"); // needs May–July
+  expect(planningWarnings(s).some((w) => w.text.includes("can't finish")), "should warn");
+});
+
+test("Index history grows each month and gets an end point", () => {
+  const s = newGame();
+  const advanceAndIgnore = () => {
+    advanceMonth(s);
+    if (s.pendingEvent) resolveEvent(s, getEvent(s.pendingEvent.id).choices.length - 1);
+  };
+  for (let i = 0; i < 6; i++) advanceAndIgnore();
+  expect(s.phase === "ended", "game should end");
+  expect(s.indexHistory.length === 7, `district history should have 7 points, has ${s.indexHistory.length}`);
+  expect(s.villageIndexHistory.rampur.length === 7, "village history should have 7 points");
+});
+
+test("Old saves without village history are migrated", () => {
+  const s = newGame();
+  delete s.villageIndexHistory;
+  const migrated = migrateState(JSON.parse(JSON.stringify(s)));
+  expect(Array.isArray(migrated.villageIndexHistory.rampur), "history should be rebuilt");
+});
+
+test("Snapshots capture before-values for the month report", () => {
+  const s = newGame();
+  const before = takeSnapshot(s);
+  startProject(s, "chintalapally", "ro_plant");
+  advanceMonth(s);
+  expect(getVillage(s, "chintalapally").stats.water > before.villages.chintalapally.water, "snapshot keeps the old value");
+});
+
+test("Recommendations favour projects that tackle the biggest need", () => {
+  const s = newGame();
+  const ro = projectValue(s, "chintalapally", "ro_plant"); // water is the biggest need (38)
+  const lab = projectValue(s, "chintalapally", "digital_lab");
+  expect(ro.addressesPriority && !lab.addressesPriority, "RO plant tackles water");
+  expect(ro.score > lab.score, "RO plant should rank higher");
+});
+
 // ---------------------------------------------------------------------
 // BALANCE SIMULATION
 // Three automatic "players" play full games. We also check that the

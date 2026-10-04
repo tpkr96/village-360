@@ -12,7 +12,7 @@
 
 function newGame() {
   const state = createNewGame();
-  state.indexHistory.push(districtIndex(state));
+  recordHistory(state);
   return state;
 }
 
@@ -80,6 +80,24 @@ function calculateImpact(state, villageId, interventionId, quality) {
   });
 
   return { deltas, notes };
+}
+
+// How good a deal is this project for this village? Used by the picker to
+// sort and recommend. Counts expected gains per ₹1 lakh, with a bonus for
+// tackling the village's weakest indicator and for sustainability.
+function projectValue(state, villageId, interventionId) {
+  const item = getIntervention(interventionId);
+  const { deltas } = calculateImpact(state, villageId, interventionId, 1);
+  const gain = Object.values(deltas).reduce((sum, d) => sum + Math.max(0, d), 0);
+  const priority = villagePriority(getVillage(state, villageId));
+  const addressesPriority = (item.impact[priority] || 0) >= 5; // a token +2 doesn't count
+  const lakhs = item.cost / 100000;
+  return {
+    gainPerLakh: gain / lakhs,
+    score: (gain * (addressesPriority ? 1.4 : 1) * (0.6 + item.sustainability / 25)) / lakhs,
+    addressesPriority,
+    priority,
+  };
 }
 
 // ---------------------------------------------------------------------
@@ -191,7 +209,7 @@ function advanceMonth(state) {
   }
 
   state.month += 1; // 6b. move to next month
-  state.indexHistory.push(districtIndex(state));
+  recordHistory(state);
   rollRandomEvent(state); // 7. maybe something happens
   return report;
 }
@@ -416,7 +434,51 @@ function endGame(state, report) {
     });
   });
   state.phase = "ended";
+  recordHistory(state); // the "End" point on the trend charts
   state.finalScore = calculateFinalScore(state);
+}
+
+// ---------------------------------------------------------------------
+// PLANNING WARNINGS — checked before the player advances a month.
+// Nothing here changes the state; it only looks for likely mistakes so
+// the UI can say "are you sure?" with concrete reasons.
+// ---------------------------------------------------------------------
+function planningWarnings(state) {
+  const warnings = [];
+  const monthsLeft = state.maxMonths - state.month + 1;
+
+  state.villages.forEach((v) => {
+    if (activeProjects(state, v.id).length === 0) {
+      warnings.push({ tone: "warn", text: `${v.name} has no active projects: its satisfaction will drop by 2.` });
+    }
+    // Skip the water warning if a water project finishes this month (completions happen before illness).
+    const waterFixDue = activeProjects(state, v.id).some((p) => p.monthsLeft === 1 && (getIntervention(p.interventionId).impact.water || 0) > 0);
+    if (v.stats.water < 40 && !waterFixDue) {
+      warnings.push({ tone: "bad", text: `Unsafe water in ${v.name} will lower its health by 1 this month.` });
+    }
+  });
+
+  activeProjects(state).forEach((p) => {
+    if (state.month + p.monthsLeft - 1 > state.maxMonths) {
+      warnings.push({
+        tone: "bad",
+        text: `${getIntervention(p.interventionId).name} in ${getVillage(state, p.villageId).name} can't finish before ${monthName(state.maxMonths)}.`,
+      });
+    }
+  });
+
+  // Could anything still be started this month?
+  const startable = state.villages.some((v) => INTERVENTIONS.some((i) => checkCanStart(state, v.id, i.id).ok));
+  const available = budgetAvailable(state);
+  if (startable && state.month >= 4) {
+    const when = monthsLeft === 1 ? "and this is the final month" : `with ${monthsLeft} months left`;
+    warnings.push({ tone: "warn", text: `₹${formatNumber(available)} is still unallocated ${when}. Unspent money lowers your efficiency score.` });
+  }
+  const idleStaff = staffCapacity(state) - staffInUse(state);
+  if (startable && idleStaff >= 2) {
+    warnings.push({ tone: "info", text: `${idleStaff} staff points are idle this month.` });
+  }
+  return warnings;
 }
 
 // ₹ formatting in the Indian system: 1000000 → "10,00,000"

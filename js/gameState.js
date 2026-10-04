@@ -62,7 +62,8 @@ function createNewGame() {
     eventLog: [], // [{ month, title, villageName, choice, outcome }]
 
     reports: [], // monthly field updates, newest first: [{ month, lines: [] }]
-    indexHistory: [], // district index at the start of each month (for the trend chart)
+    indexHistory: [], // district index at the start of each month + at the end (for charts)
+    villageIndexHistory: {}, // the same, per village: { rampur: [52, 55, ...], ... }
 
     counters: { eventsHandled: 0, eventsIgnored: 0, projectsCancelled: 0, delays: 0, maintenanceMissed: 0 },
 
@@ -147,6 +148,23 @@ function totalBeneficiaries(state) {
   const totals = { women: 0, youth: 0, students: 0, farmers: 0, households: 0, community: 0 };
   state.villages.forEach((v) => BENEFICIARY_KEYS.forEach((k) => (totals[k] += v.beneficiaries[k])));
   return totals;
+}
+
+// A frozen copy of the numbers we want to compare later ("before" vs "after").
+// The month report uses it to show exactly what changed.
+function takeSnapshot(state) {
+  const villages = {};
+  state.villages.forEach((v) => (villages[v.id] = { ...v.stats, index: villageIndex(v) }));
+  return { month: state.month, index: districtIndex(state), spent: state.budget.spent, villages };
+}
+
+// Record the current indices for the trend charts.
+function recordHistory(state) {
+  state.indexHistory.push(districtIndex(state));
+  state.villages.forEach((v) => {
+    if (!state.villageIndexHistory[v.id]) state.villageIndexHistory[v.id] = [];
+    state.villageIndexHistory[v.id].push(villageIndex(v));
+  });
 }
 
 function totalPopulation(state) {

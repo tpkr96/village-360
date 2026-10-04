@@ -32,10 +32,40 @@ function loadGame() {
     const text = localStorage.getItem(SAVE_KEY);
     if (!text) return null;
     const state = JSON.parse(text);
-    return state && state.version === 1 ? state : null; // ignore saves from other versions
+    return state && state.version === 1 ? migrateState(state) : null; // ignore saves from other versions
   } catch (error) {
     console.warn("Could not load the saved game:", error);
     return null;
+  }
+}
+
+// MIGRATION: saves made by an older version of the game may be missing
+// fields that newer code expects. Instead of throwing old saves away,
+// we fill in the missing pieces. Every real app does this when its data
+// shape changes (databases call it a "schema migration").
+function migrateState(state) {
+  if (!state.villageIndexHistory) {
+    // Added in Step 4. We can't recover past months, so start from today.
+    state.villageIndexHistory = {};
+    state.villages.forEach((v) => (state.villageIndexHistory[v.id] = [villageIndex(v)]));
+  }
+  return state;
+}
+
+// Small per-browser preferences (not part of the game itself).
+function loadPreference(key) {
+  try {
+    return localStorage.getItem("village360.pref." + key);
+  } catch (error) {
+    return null;
+  }
+}
+
+function savePreference(key, value) {
+  try {
+    localStorage.setItem("village360.pref." + key, value);
+  } catch (error) {
+    // preferences are optional
   }
 }
 

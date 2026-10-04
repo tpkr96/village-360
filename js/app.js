@@ -15,9 +15,13 @@ let state = null;
 const ui = {
   selectedVillageId: "rampur",
   tab: "overview",
-  modal: null, // { type: "intro" | "help" | "picker" | "report" | "outcome" | "confirm", ...extra }
+  modal: null, // { type: "intro" | "help" | "picker" | "report" | "outcome" | "confirm" | "advance-check", ...extra }
   pickerCategory: "all",
+  pickerSort: "recommended",
   finalDismissed: false,
+  tutorialStep: null, // number while the tutorial is showing
+  skipAdvanceCheck: false, // player ticked "don't check again this game"
+  mapDeltas: null, // { villageId: change } shown once on the map after a month
 };
 
 function update() {
@@ -25,11 +29,34 @@ function update() {
   render(state, ui);
 }
 
+// Advance for real: remember the "before" numbers so the report can show
+// exactly what changed.
+function doAdvance() {
+  const before = takeSnapshot(state);
+  const report = advanceMonth(state);
+  ui.modal = report ? { type: "report", report, before } : null;
+}
+
+function finishTutorial() {
+  ui.tutorialStep = null;
+  savePreference("tutorialDone", "1");
+}
+
 // Each key is a data-action name used in the HTML. `id` is the element's data-id.
 const actions = {
   "new-game": () => {
     state = newGame();
-    Object.assign(ui, { selectedVillageId: "rampur", tab: "overview", modal: null, pickerCategory: "all", finalDismissed: false });
+    resetAnimations();
+    Object.assign(ui, {
+      selectedVillageId: "rampur",
+      tab: "overview",
+      modal: null,
+      pickerCategory: "all",
+      pickerSort: "recommended",
+      finalDismissed: false,
+      skipAdvanceCheck: false,
+      tutorialStep: loadPreference("tutorialDone") === "1" ? null : 0, // first game only
+    });
     showToast("New game started. Welcome to Kothapet District.", "good");
   },
   "new-game-confirm": () => {
@@ -43,6 +70,12 @@ const actions = {
   },
   "close-modal": () => {
     if (!ui.modal && state.phase === "ended") ui.finalDismissed = true;
+    // Closing a month report: float each village's index change over the map.
+    if (ui.modal && ui.modal.type === "report" && ui.modal.before) {
+      const before = ui.modal.before;
+      ui.mapDeltas = {};
+      state.villages.forEach((v) => (ui.mapDeltas[v.id] = villageIndex(v) - before.villages[v.id].index));
+    }
     ui.modal = null;
   },
   "select-village": (id) => {
@@ -57,13 +90,23 @@ const actions = {
   "picker-category": (id) => {
     ui.pickerCategory = id;
   },
+  "picker-sort": (id) => {
+    ui.pickerSort = id;
+  },
   "start-project": (id) => {
     const result = startProject(state, ui.selectedVillageId, id);
     showToast(result.message, result.ok ? "good" : "bad");
   },
   advance: () => {
-    const report = advanceMonth(state);
-    if (report) ui.modal = { type: "report", report };
+    const warnings = ui.skipAdvanceCheck ? [] : planningWarnings(state);
+    if (warnings.length) ui.modal = { type: "advance-check", warnings };
+    else doAdvance();
+  },
+  "advance-confirmed": () => {
+    doAdvance();
+  },
+  "toggle-skip-check": () => {
+    ui.skipAdvanceCheck = !ui.skipAdvanceCheck;
   },
   "show-event": () => {
     ui.modal = null; // with no modal open, render() shows the pending event
@@ -92,6 +135,20 @@ const actions = {
     ui.modal = null;
     ui.finalDismissed = false;
   },
+  "tutorial-start": () => {
+    ui.modal = null;
+    ui.tutorialStep = 0;
+  },
+  "tutorial-next": () => {
+    if (ui.tutorialStep >= TUTORIAL_STEPS.length - 1) finishTutorial();
+    else ui.tutorialStep += 1;
+  },
+  "tutorial-prev": () => {
+    ui.tutorialStep = Math.max(0, ui.tutorialStep - 1);
+  },
+  "tutorial-skip": () => {
+    finishTutorial();
+  },
 };
 
 // One click listener for the whole page ("event delegation").
@@ -103,17 +160,20 @@ document.addEventListener("click", (e) => {
   if (!handler) return;
   handler(el.dataset.id);
   update();
+  ui.mapDeltas = null; // the floating map numbers are shown once only
 });
 
-// Keyboard: Enter/Space on map villages, Escape closes dialogs.
+// Keyboard: Enter/Space on map villages, Escape closes dialogs or the tutorial.
 document.addEventListener("keydown", (e) => {
   if ((e.key === "Enter" || e.key === " ") && e.target.matches && e.target.matches(".vnode")) {
     e.preventDefault();
     actions["select-village"](e.target.dataset.id);
     update();
   }
-  if (e.key === "Escape" && ui.modal && ui.modal.type !== "intro") {
-    actions["close-modal"]();
+  if (e.key === "Escape") {
+    if (ui.modal && ui.modal.type !== "intro") actions["close-modal"]();
+    else if (ui.tutorialStep !== null) finishTutorial();
+    else return;
     update();
   }
 });

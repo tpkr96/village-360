@@ -157,7 +157,7 @@ p { margin: 0 0 10px; }
 /* ---------- bars & chips ---------- */
 .bar { position: relative; height: 8px; background: #1b2940; border-radius: 99px; overflow: hidden; flex: 1; }
 .bar.thin { height: 5px; margin: 6px 0; }
-.bar .fill { height: 100%; border-radius: 99px; background: var(--accent); transition: width 0.5s; }
+.bar .fill { height: 100%; border-radius: 99px; background: var(--accent); transition: width 0.6s ease-out; }
 .bar .baseline { position: absolute; top: -2px; bottom: -2px; width: 2px; background: #ffffffb0; }
 .bar.double { height: 12px; }
 .bar.double .fill { position: absolute; left: 0; top: 0; }
@@ -217,16 +217,19 @@ p { margin: 0 0 10px; }
 .hbar, .impact-row, .score-row { display: grid; grid-template-columns: 150px 1fr 50px; gap: 10px; align-items: center; margin-bottom: 8px; font-size: 13px; }
 .impact-row { grid-template-columns: 170px 1fr 30px 44px; }
 .hbar b, .impact-row b, .score-row b { font: 600 15px var(--display); text-align: right; }
-.chart { width: 100%; max-width: 460px; }
-.chart polyline { fill: none; stroke: var(--accent); stroke-width: 2.5; }
-.chart circle { fill: var(--accent); }
+/* Colours for chart lines come from SVG attributes, so these rules must not set stroke/fill. */
+.chart { width: 100%; max-width: 520px; display: block; }
+.chart polyline { fill: none; stroke-width: 2; stroke-linejoin: round; opacity: 0.85; }
+.chart polyline.bold { stroke-width: 3.5; opacity: 1; }
+.chart .grid { stroke: #ffffff10; }
 .chart text { fill: var(--muted); font: 10px var(--font); }
-.chart text.val { fill: var(--text); font: 600 11px var(--display); }
+.chart text.val { font: 600 11px var(--display); }
 .cmp-row { display: grid; grid-template-columns: 170px 1fr; gap: 10px; margin-bottom: 10px; align-items: center; }
 .cmp-label { font-size: 13px; }
 .cmp-bars { display: grid; gap: 3px; }
 .cmp-bar { display: flex; align-items: center; gap: 8px; height: 9px; }
-.cmp-bar .fill { height: 100%; border-radius: 99px; }
+.cmp-track { flex: 1; height: 100%; }
+.cmp-bar .fill { height: 100%; border-radius: 99px; transition: width 0.6s ease-out; }
 .cmp-bar b { font: 600 12px var(--display); }
 .table { width: 100%; border-collapse: collapse; margin-top: 14px; font-size: 13px; }
 .table th { text-align: left; color: var(--muted); font-weight: 600; font-size: 11.5px; text-transform: uppercase; letter-spacing: 0.06em; padding: 6px 8px; border-bottom: 1px solid var(--line); }
@@ -320,9 +323,83 @@ p { margin: 0 0 10px; }
 .toast.bad { border-left-color: var(--bad); }
 .toast.hide { opacity: 0; transform: translateY(8px); }
 
+/* ====================================================================
+   STEP 4 ADDITIONS
+   ==================================================================== */
+
+/* ---------- number flashes & floating map deltas ---------- */
+.flash-up { animation: flashUp 1.4s ease-out; }
+.flash-down { animation: flashDown 1.4s ease-out; }
+@keyframes flashUp { 0%, 30% { color: var(--good); text-shadow: 0 0 12px #34d39988; } }
+@keyframes flashDown { 0%, 30% { color: var(--bad); text-shadow: 0 0 12px #f43f5e88; } }
+
+.float-delta { font: 700 18px var(--display); text-anchor: middle; animation: floatUp 2.6s ease-out forwards; pointer-events: none; }
+.float-delta.up { fill: var(--good); }
+.float-delta.down { fill: var(--bad); }
+@keyframes floatUp {
+  0% { opacity: 0; transform: translateY(8px); }
+  15% { opacity: 1; transform: translateY(0); }
+  75% { opacity: 1; }
+  100% { opacity: 0; transform: translateY(-18px); }
+}
+
+/* ---------- village switcher, help icons, sparkline ---------- */
+.vswitch { display: flex; gap: 6px; margin-bottom: 12px; flex-wrap: wrap; }
+.vpill { display: flex; align-items: center; gap: 8px; font: 600 13px var(--font); color: var(--muted); background: var(--bg-2); border: 1px solid var(--line); border-radius: 99px; padding: 5px 6px 5px 12px; cursor: pointer; }
+.vpill b { font: 600 13px var(--display); background: #ffffff10; border-radius: 99px; padding: 1px 8px; color: var(--text); }
+.vpill:hover { border-color: var(--vc); }
+.vpill.active { color: var(--text); border-color: var(--vc); background: color-mix(in srgb, var(--vc) 14%, var(--bg-2)); }
+.info { display: inline-grid; place-items: center; width: 14px; height: 14px; border-radius: 50%; border: 1px solid var(--line-2); color: var(--muted); font: italic 600 9px Georgia, serif; vertical-align: 1px; margin-left: 2px; }
+.indicator { cursor: help; }
+.spark-wrap { margin-top: 4px; }
+.spark { width: 96px; height: 26px; display: block; }
+.spark polyline { fill: none; stroke-width: 2; stroke-linejoin: round; }
+.good-text { color: var(--good); }
+
+/* ---------- picker tools & recommendations ---------- */
+.picker-tools { display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap; margin-bottom: 14px; }
+.picker-tools .filters { margin: 0; }
+.segs { display: inline-flex; border: 1px solid var(--line-2); border-radius: 8px; overflow: hidden; }
+.seg { background: transparent; border: 0; color: var(--muted); font: 600 12px var(--font); padding: 6px 12px; cursor: pointer; }
+.seg + .seg { border-left: 1px solid var(--line-2); }
+.seg.active { background: var(--panel-2); color: var(--text); }
+.icard { position: relative; }
+.icard.recommended { border-color: color-mix(in srgb, var(--accent-2) 55%, var(--line)); box-shadow: 0 0 0 1px #f5b94222, 0 8px 24px #f5b9420d; }
+.rec-flag { position: absolute; top: -10px; right: 12px; background: var(--accent-2); color: #2a1a00; font: 700 11px var(--font); padding: 2px 8px; border-radius: 99px; }
+
+/* ---------- advance check & month report ---------- */
+.check { display: flex; align-items: center; gap: 8px; margin-top: 14px; font-size: 13px; color: var(--muted); cursor: pointer; }
+.check input { accent-color: var(--accent); width: 16px; height: 16px; }
+.report li.info::marker { color: var(--ok); }
+.table-wrap { overflow-x: auto; }
+.changes { margin-top: 6px; }
+.changes th, .changes td { padding: 6px; white-space: nowrap; }
+.tnum { font: 600 14px var(--display); }
+.mini { font: 600 11px var(--display); margin-left: 4px; }
+.mini.up { color: var(--good); }
+.mini.down { color: var(--bad); }
+
+/* ---------- tutorial spotlight ---------- */
+.tut-block { position: fixed; inset: 0; z-index: 70; }
+.tut-spot { position: fixed; z-index: 71; border-radius: 12px; box-shadow: 0 0 0 9999px rgba(4, 8, 16, 0.74); outline: 2px solid var(--accent); pointer-events: none; transition: top 0.25s, left 0.25s, width 0.25s, height 0.25s; }
+.tut-card { position: fixed; z-index: 72; width: min(350px, calc(100vw - 32px)); background: var(--panel-2); border: 1px solid var(--accent); border-radius: 12px; padding: 16px; box-shadow: 0 20px 50px #000a; animation: rise 0.2s; }
+.tut-card h3 { color: var(--text); text-transform: none; letter-spacing: 0.02em; font-size: 20px; margin: 4px 0 6px; }
+.tut-card p { font-size: 13.5px; }
+.tut-actions { display: flex; justify-content: space-between; align-items: center; gap: 8px; margin-top: 4px; }
+.tut-actions span { display: flex; gap: 6px; }
+
+/* ---------- accessibility ---------- */
+:focus-visible { outline: 2px solid var(--accent-2); outline-offset: 2px; }
+.vnode:focus-visible { outline: none; }
+.vnode:focus-visible .ring-bg { stroke: var(--accent-2); }
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation-duration: 0.01ms !important; animation-iteration-count: 1 !important; transition-duration: 0.01ms !important; }
+}
+
 /* ---------- responsive ---------- */
 @media (max-width: 1360px) {
-  .topbar { grid-template-columns: auto 1fr auto; }
+  /* When the top bar wraps onto several rows it is too tall to stay pinned. */
+  .topbar { grid-template-columns: auto 1fr auto; position: static; }
   .timeline { grid-column: 1 / -1; grid-row: 2; }
   .topstats { grid-column: 1 / -1; grid-row: 3; justify-content: flex-start; flex-wrap: wrap; }
   .top-actions { grid-column: 3; grid-row: 1; }
@@ -352,4 +429,6 @@ p { margin: 0 0 10px; }
   .intro h1 { font-size: 40px; }
   .modal { padding: 18px; }
   .final-top { flex-direction: column; align-items: flex-start; }
+  .picker-tools { flex-direction: column; align-items: stretch; }
+  .segs { align-self: flex-start; }
 }

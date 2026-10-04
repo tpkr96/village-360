@@ -55,6 +55,48 @@ function beneficiaryText(beneficiaries) {
     .join(" · ");
 }
 
+// ---------------------------------------------------------------------
+// ANIMATION HELPERS
+// Because the screen is rebuilt from scratch on every render, the
+// browser can't animate "from the old value to the new one" on its own.
+// So we remember what we showed last time in `previousValues`, and:
+//   - bars:    draw them at the OLD width, then switch to the NEW width
+//              a moment later; the CSS `transition` animates the change.
+//   - numbers: add a "flash" class when the value went up or down.
+// ---------------------------------------------------------------------
+const previousValues = {};
+
+function animatedFill(key, value, color) {
+  const from = key in previousValues ? previousValues[key] : 0; // first time: grow from 0
+  previousValues[key] = value;
+  return `<div class="fill" style="width:${from}%;${color ? `background:${color};` : ""}" data-to="${value}"></div>`;
+}
+
+function flash(key, value) {
+  const before = previousValues[key];
+  previousValues[key] = value;
+  if (before === undefined || before === value) return "";
+  return value > before ? "flash-up" : "flash-down";
+}
+
+// Forget remembered values (used when a new game starts, so nothing "flashes").
+function resetAnimations() {
+  Object.keys(previousValues).forEach((k) => delete previousValues[k]);
+}
+
+function runAnimations() {
+  const fills = document.querySelectorAll(".fill[data-to]");
+  // Wait two animation frames so the browser has painted the OLD width first.
+  requestAnimationFrame(() =>
+    requestAnimationFrame(() =>
+      fills.forEach((el) => {
+        el.style.width = el.dataset.to + "%";
+        el.removeAttribute("data-to");
+      })
+    )
+  );
+}
+
 // =====================================================================
 // MAIN RENDER
 // =====================================================================
@@ -66,6 +108,8 @@ function render(state, ui) {
   renderTabs(state, ui);
   renderFeed(state);
   renderModal(state, ui);
+  runAnimations();
+  renderTutorial(state, ui);
 }
 
 // ---------------------------------------------------------------------
@@ -83,25 +127,24 @@ function renderTopbar(state) {
   $("timeline").innerHTML = `<div class="timeline-label">${label}</div><div class="pips">${pips}</div>`;
 
   const index = districtIndex(state);
-  const indexDelta = index - state.indexHistory[0];
   const stats = [
-    { label: "Budget left", value: rupees(budgetRemaining(state)) },
-    { label: "Available", value: rupees(budgetAvailable(state)), hint: "Free for new projects" },
-    { label: "District index", value: `${index} ${deltaChip(indexDelta)}` },
-    { label: "Satisfaction", value: averageSatisfaction(state) },
-    { label: "Projects", value: activeProjects(state).length, hint: "Active" },
-    { label: "Staff", value: `${staffInUse(state)}/${staffCapacity(state)}`, warn: state.staff.shortageMonths > 0 },
+    { key: "left", label: "Budget left", raw: budgetRemaining(state), value: rupees(budgetRemaining(state)), hint: "Money not yet paid out" },
+    { key: "avail", label: "Available", raw: budgetAvailable(state), value: rupees(budgetAvailable(state)), hint: "Free for new projects" },
+    { key: "index", label: "District index", raw: index, value: `${index} ${deltaChip(index - state.indexHistory[0])}`, hint: "Average of all village indicators" },
+    { key: "sat", label: "Satisfaction", raw: averageSatisfaction(state), value: averageSatisfaction(state), hint: "Average community satisfaction" },
+    { key: "proj", label: "Projects", raw: activeProjects(state).length, value: activeProjects(state).length, hint: "Active projects" },
+    { key: "staff", label: "Staff", raw: staffInUse(state), value: `${staffInUse(state)}/${staffCapacity(state)}`, hint: "Staff points in use / available", warn: state.staff.shortageMonths > 0 },
   ];
   $("topstats").innerHTML = stats
     .map(
-      (s) => `<div class="stat ${s.warn ? "warn" : ""}" ${s.hint ? `title="${s.hint}"` : ""}>
-        <div class="stat-label">${s.label}</div><div class="stat-value">${s.value}</div></div>`
+      (s) => `<div class="stat ${s.warn ? "warn" : ""}" title="${s.hint}">
+        <div class="stat-label">${s.label}</div><div class="stat-value ${flash("top." + s.key, s.raw)}">${s.value}</div></div>`
     )
     .join("");
 
   const btn = $("advance-btn");
   btn.disabled = state.phase !== "playing" || !!state.pendingEvent;
-  btn.textContent = state.month === state.maxMonths ? "Finish Programme →" : "Advance Month →";
+  btn.textContent = state.phase === "ended" ? "Programme complete" : state.month === state.maxMonths ? "Finish Programme →" : "Advance Month →";
 }
 
 // ---------------------------------------------------------------------
@@ -127,8 +170,11 @@ function renderMap(state, ui) {
       const active = activeProjects(state, v.id).length;
       const selected = ui.selectedVillageId === v.id;
       const dots = Array.from({ length: active }, (_, i) => `<circle cx="${-((active - 1) * 7) / 2 + i * 7}" cy="-48" r="3" class="proj-dot" />`).join("");
+      // After a month ends, a "+3" / "−2" floats up from each village.
+      const d = ui.mapDeltas ? ui.mapDeltas[v.id] : 0;
+      const floatDelta = d ? `<text class="float-delta ${d > 0 ? "up" : "down"}" y="-36">${d > 0 ? "+" : "−"}${Math.abs(d)}</text>` : "";
       return `
-      <g class="vnode ${selected ? "selected" : ""}" transform="translate(${v.position.x},${v.position.y})" data-action="select-village" data-id="${v.id}" tabindex="0" role="button" aria-label="${esc(v.name)}">
+      <g class="vnode ${selected ? "selected" : ""}" transform="translate(${v.position.x},${v.position.y})" data-action="select-village" data-id="${v.id}" tabindex="0" role="button" aria-label="${esc(v.name)}, index ${index}, ${healthLabel(index).label}">
         ${selected ? `<circle r="46" class="halo" />` : ""}
         <circle r="34" class="ring-bg" />
         <circle r="34" class="ring" stroke="${color}" stroke-dasharray="${filled} ${circumference}" transform="rotate(-90)" />
@@ -137,6 +183,7 @@ function renderMap(state, ui) {
         <text class="vname" y="56">${esc(v.name)}</text>
         <text class="vpop" y="71">${formatNumber(v.population)} people</text>
         ${dots}
+        ${floatDelta}
         ${eventVillage === v.id ? `<g class="alert" transform="translate(26,-26)"><circle r="10"/><text y="4">!</text></g>` : ""}
       </g>`;
     })
@@ -185,15 +232,19 @@ function renderVillagePanel(state, ui) {
   const problems = villageProblems(state, v);
   const reached = BENEFICIARY_KEYS.reduce((s, k) => s + v.beneficiaries[k], 0);
 
+  const switcher = state.villages
+    .map((x) => `<button class="vpill ${x.id === v.id ? "active" : ""}" style="--vc:${VILLAGE_COLORS[x.id]}" data-action="select-village" data-id="${x.id}">${esc(x.name)}<b>${villageIndex(x)}</b></button>`)
+    .join("");
+
   const indicatorRows = [...STAT_KEYS, "satisfaction"]
     .map((k) => {
       const value = v.stats[k];
       const tone = statTone(value);
-      return `<div class="indicator">
-        <div class="ind-label">${STAT_LABELS[k]}</div>
-        <div class="bar"><div class="fill" style="width:${value}%;background:${TONE_COLORS[tone]}"></div>
+      return `<div class="indicator" title="${esc(STAT_HELP[k])}">
+        <div class="ind-label">${STAT_LABELS[k]} <span class="info">i</span></div>
+        <div class="bar">${animatedFill(`v.${v.id}.${k}`, value, TONE_COLORS[tone])}
           <div class="baseline" style="left:${v.baseline[k]}%" title="Starting value: ${v.baseline[k]}"></div></div>
-        <div class="ind-value">${value}</div>${deltaChip(value - v.baseline[k])}
+        <div class="ind-value ${flash(`n.${v.id}.${k}`, value)}">${value}</div>${deltaChip(value - v.baseline[k])}
       </div>`;
     })
     .join("");
@@ -206,7 +257,7 @@ function renderVillagePanel(state, ui) {
           const finish = state.month + p.monthsLeft - 1;
           return `<div class="proj">
             <div class="proj-top"><strong>${item.name}</strong>${categoryChip(item.category)}</div>
-            <div class="bar thin"><div class="fill" style="width:${progress}%;background:${CATEGORIES[item.category].color}"></div></div>
+            <div class="bar thin">${animatedFill(`p.${p.id}`, progress, CATEGORIES[item.category].color)}</div>
             <div class="muted small">${p.monthsLeft} month(s) left · due end of ${monthName(finish) || "after the programme"}${p.delays ? ` · <span class="warn-text">${p.delays} delay(s)</span>` : ""}${finish > state.maxMonths ? ` · <span class="bad-text">won't finish in time</span>` : ""}</div>
           </div>`;
         })
@@ -219,14 +270,17 @@ function renderVillagePanel(state, ui) {
           const item = getIntervention(p.interventionId);
           const result = Object.keys(p.result)
             .filter((k) => p.result[k])
-            .map((k) => `${STAT_LABELS[k].split(" ")[0]} ${p.result[k] > 0 ? "+" : ""}${p.result[k]}`)
+            .map((k) => `${STAT_SHORT[k]} ${p.result[k] > 0 ? "+" : ""}${p.result[k]}`)
             .join(", ");
           return `<div class="proj done"><div class="proj-top"><strong>✔ ${item.name}</strong><span class="muted small">${monthName(p.completedMonth)}</span></div><div class="muted small">${result}</div></div>`;
         })
         .join("")
     : `<p class="muted small">None yet.</p>`;
 
+  const trend = state.villageIndexHistory[v.id] || [index];
+
   $("village-panel").innerHTML = `
+    <div class="vswitch" role="tablist" aria-label="Choose village">${switcher}</div>
     <div class="vp-head">
       <div>
         <div class="eyebrow" style="color:${VILLAGE_COLORS[v.id]}">${esc(v.mandal)}</div>
@@ -239,19 +293,20 @@ function renderVillagePanel(state, ui) {
     <div class="vp-summary">
       <div class="gauge">
         ${gaugeSvg(index, TONE_COLORS[health.tone])}
-        <div><div class="gauge-label" style="color:${TONE_COLORS[health.tone]}">${health.label}</div><div class="muted small">Village health</div></div>
+        <div><div class="gauge-label" style="color:${TONE_COLORS[health.tone]}">${health.label}</div><div class="muted small">Village health</div>
+        ${trend.length > 1 ? `<div class="spark-wrap" title="Village index each month">${sparkline(trend, VILLAGE_COLORS[v.id])}</div>` : ""}</div>
       </div>
       <div class="facts">
         <div><span>${formatNumber(v.population)}</span>Population</div>
         <div><span>${formatNumber(v.households)}</span>Households</div>
-        <div><span>${formatNumber(reached)}</span>Beneficiaries reached</div>
+        <div><span class="${flash(`r.${v.id}`, reached)}">${formatNumber(reached)}</span>Beneficiaries reached</div>
         <div><span>${active.length} / ${done.length}</span>Active / done</div>
       </div>
     </div>
 
     <div class="vp-grid">
       <div>
-        <h3>Indicators <span class="muted small">(line = starting value)</span></h3>
+        <h3>Indicators <span class="muted small">(white line = starting value)</span></h3>
         ${indicatorRows}
         <h3>Problems</h3>
         ${problems.length ? `<ul class="problems">${problems.map((p) => `<li class="${p.tone}">${esc(p.text)}</li>`).join("")}</ul>` : `<p class="muted small">No major problems right now.</p>`}
@@ -272,9 +327,16 @@ function gaugeSvg(value, color) {
   return `<svg viewBox="0 0 76 76" class="gauge-svg">
     <circle cx="38" cy="38" r="30" class="ring-bg" />
     <circle cx="38" cy="38" r="30" fill="none" stroke="${color}" stroke-width="7" stroke-linecap="round"
-      stroke-dasharray="${(value / 100) * c} ${c}" transform="rotate(-90 38 38)" />
+      stroke-dasharray="${(value / 100) * c} ${c}" transform="rotate(-90 38 38)" class="gauge-arc" />
     <text x="38" y="44" text-anchor="middle" class="gauge-num">${value}</text>
   </svg>`;
+}
+
+function sparkline(values, color) {
+  const w = 96, h = 26;
+  const min = Math.min(...values) - 2, max = Math.max(...values) + 2;
+  const pts = values.map((v, i) => `${(i / (values.length - 1)) * (w - 4) + 2},${h - 2 - ((v - min) / (max - min)) * (h - 4)}`).join(" ");
+  return `<svg viewBox="0 0 ${w} ${h}" class="spark"><polyline points="${pts}" stroke="${color}" /></svg>`;
 }
 
 // ---------------------------------------------------------------------
@@ -308,27 +370,54 @@ function tabOverview(state) {
   <div class="cards4">
     <div class="card"><div class="card-label">Total population</div><div class="card-value">${formatNumber(totalPopulation(state))}</div></div>
     <div class="card"><div class="card-label">Beneficiary reach</div><div class="card-value">${formatNumber(reach)}</div><div class="muted small">sum across categories</div></div>
-    <div class="card"><div class="card-label">Budget utilised</div><div class="card-value">${utilization}%</div><div class="bar thin"><div class="fill" style="width:${utilization}%"></div></div></div>
+    <div class="card"><div class="card-label">Budget utilised</div><div class="card-value">${utilization}%</div><div class="bar thin">${animatedFill("o.util", utilization)}</div></div>
     <div class="card"><div class="card-label">Avg indicator change</div><div class="card-value">${signed(gain)}</div><div class="muted small">per village, since April</div></div>
   </div>
   <div class="two-col">
-    <div><h3>District index by month</h3>${lineChart(state.indexHistory, state.maxMonths)}</div>
+    <div><h3>Index trend</h3>${trendChart(state)}</div>
     <div><h3>Beneficiaries by category</h3>
-      ${BENEFICIARY_KEYS.map((k) => `<div class="hbar"><span>${BENEFICIARY_LABELS[k]}</span><div class="bar"><div class="fill" style="width:${(totals[k] / maxBenef) * 100}%"></div></div><b>${formatNumber(totals[k])}</b></div>`).join("")}
+      ${BENEFICIARY_KEYS.map((k) => `<div class="hbar"><span>${BENEFICIARY_LABELS[k]}</span><div class="bar">${animatedFill("b." + k, (totals[k] / maxBenef) * 100)}</div><b>${formatNumber(totals[k])}</b></div>`).join("")}
     </div>
   </div>`;
 }
 
-// Tiny hand-made SVG line chart, so we need no chart library yet.
-function lineChart(values, slots) {
-  const w = 320, h = 140, pad = 24;
-  const min = Math.min(...values) - 5, max = Math.max(...values) + 5;
-  const x = (i) => pad + (i * (w - pad * 2)) / (slots - 1);
-  const y = (v) => h - pad - ((v - min) / (max - min || 1)) * (h - pad * 2);
-  const points = values.map((v, i) => `${x(i)},${y(v)}`).join(" ");
-  const labels = MONTH_NAMES.map((m, i) => `<text x="${x(i)}" y="${h - 4}" text-anchor="middle">${m.slice(0, 3)}</text>`).join("");
-  const dots = values.map((v, i) => `<circle cx="${x(i)}" cy="${y(v)}" r="3.5" /><text x="${x(i)}" y="${y(v) - 9}" text-anchor="middle" class="val">${v}</text>`).join("");
-  return `<svg viewBox="0 0 ${w} ${h}" class="chart">${labels}<polyline points="${points}" />${dots}</svg>`;
+// Hand-made SVG line chart: one line per village plus the district.
+function trendChart(state) {
+  const w = 460, h = 180, padL = 26, padR = 34, padY = 22;
+  const labels = [...MONTH_NAMES.map((m) => m.slice(0, 3)), "End"];
+  const series = [
+    ...state.villages.map((v) => ({ label: v.name, color: VILLAGE_COLORS[v.id], values: state.villageIndexHistory[v.id] || [] })),
+    { label: "District", color: "#e6edf7", values: state.indexHistory, bold: true },
+  ];
+  const all = series.flatMap((s) => s.values);
+  const min = Math.min(...all) - 4, max = Math.max(...all) + 4;
+  const x = (i) => padL + (i * (w - padL - padR)) / (labels.length - 1);
+  const y = (v) => h - padY - ((v - min) / (max - min || 1)) * (h - padY * 2);
+
+  const grid = [min + 4, Math.round((min + max) / 2), max - 4]
+    .map((g) => `<line x1="${padL}" x2="${w - padR}" y1="${y(g)}" y2="${y(g)}" class="grid" /><text x="${padL - 6}" y="${y(g) + 3}" text-anchor="end">${Math.round(g)}</text>`)
+    .join("");
+  const xLabels = labels.map((l, i) => `<text x="${x(i)}" y="${h - 4}" text-anchor="middle">${l}</text>`).join("");
+  const drawn = series.filter((s) => s.values.length);
+  const lines = drawn
+    .map((s) => {
+      const pts = s.values.map((v, i) => `${x(i)},${y(v)}`).join(" ");
+      const last = s.values.length - 1;
+      return `<polyline points="${pts}" stroke="${s.color}" class="${s.bold ? "bold" : ""}" />
+        <circle cx="${x(last)}" cy="${y(s.values[last])}" r="3.5" fill="${s.color}" />`;
+    })
+    .join("");
+
+  // End-of-line value labels: sort top to bottom, then push apart so they don't overlap.
+  const tags = drawn
+    .map((s) => ({ s, last: s.values.length - 1, ty: y(s.values[s.values.length - 1]) + 4 }))
+    .sort((a, b) => a.ty - b.ty);
+  for (let i = 1; i < tags.length; i++) tags[i].ty = Math.max(tags[i].ty, tags[i - 1].ty + 11);
+  const labelsSvg = tags
+    .map((t) => `<text x="${x(t.last) + 7}" y="${t.ty}" class="val" fill="${t.s.color}">${t.s.values[t.last]}</text>`)
+    .join("");
+  const legend = series.map((s) => `<span><i style="background:${s.color}"></i>${s.label}</span>`).join("");
+  return `<svg viewBox="0 0 ${w} ${h}" class="chart">${grid}${xLabels}${lines}${labelsSvg}</svg><div class="legend inline">${legend}</div>`;
 }
 
 function tabVillages(state) {
@@ -336,8 +425,8 @@ function tabVillages(state) {
   const legend = state.villages.map((v) => `<span><i style="background:${VILLAGE_COLORS[v.id]}"></i>${v.name}</span>`).join("");
   const rows = keys
     .map(
-      (k) => `<div class="cmp-row"><div class="cmp-label">${STAT_LABELS[k]}</div><div class="cmp-bars">
-      ${state.villages.map((v) => `<div class="cmp-bar"><div class="fill" style="width:${v.stats[k]}%;background:${VILLAGE_COLORS[v.id]}"></div><b>${v.stats[k]}</b></div>`).join("")}
+      (k) => `<div class="cmp-row"><div class="cmp-label" title="${esc(STAT_HELP[k])}">${STAT_LABELS[k]}</div><div class="cmp-bars">
+      ${state.villages.map((v) => `<div class="cmp-bar"><div class="cmp-track">${animatedFill(`c.${v.id}.${k}`, v.stats[k], VILLAGE_COLORS[v.id])}</div><b>${v.stats[k]}</b></div>`).join("")}
       </div></div>`
     )
     .join("");
@@ -351,7 +440,7 @@ function tabVillages(state) {
     })
     .join("");
   return `<div class="legend inline">${legend}</div>${rows}
-    <table class="table"><thead><tr><th>Village</th><th>Index</th><th>Status</th><th>Active</th><th>Done</th><th>Reach</th></tr></thead><tbody>${table}</tbody></table>`;
+    <div class="table-wrap"><table class="table"><thead><tr><th>Village</th><th>Index</th><th>Status</th><th>Active</th><th>Done</th><th>Reach</th></tr></thead><tbody>${table}</tbody></table></div>`;
 }
 
 function villageIndexFrom(stats) {
@@ -402,8 +491,8 @@ function tabImpact(state) {
     .map((k) => {
       const base = avg((v) => v.baseline[k]);
       const now = avg((v) => v.stats[k]);
-      return `<div class="impact-row"><div class="cmp-label">${STAT_LABELS[k]}</div>
-        <div class="bar double"><div class="fill ghost" style="width:${base}%"></div><div class="fill" style="width:${now}%;background:${TONE_COLORS[statTone(now)]}"></div></div>
+      return `<div class="impact-row" title="${esc(STAT_HELP[k])}"><div class="cmp-label">${STAT_LABELS[k]}</div>
+        <div class="bar double"><div class="fill ghost" style="width:${base}%"></div>${animatedFill("i." + k, now, TONE_COLORS[statTone(now)])}</div>
         <b>${now}</b>${deltaChip(now - base)}</div>`;
     })
     .join("")}
@@ -421,7 +510,7 @@ function tabProjects(state) {
         <td>${monthName(p.startMonth).slice(0, 3)}</td><td>${rupees(p.paid)} / ${rupees(p.cost)}</td><td>${p.delays || "–"}</td></tr>`;
     })
     .join("");
-  return `<table class="table"><thead><tr><th>Project</th><th>Village</th><th>Status</th><th>Start</th><th>Paid / cost</th><th>Delays</th></tr></thead><tbody>${rows}</tbody></table>`;
+  return `<div class="table-wrap"><table class="table"><thead><tr><th>Project</th><th>Village</th><th>Status</th><th>Start</th><th>Paid / cost</th><th>Delays</th></tr></thead><tbody>${rows}</tbody></table></div>`;
 }
 
 // ---------------------------------------------------------------------
@@ -458,6 +547,7 @@ function renderFeed(state) {
 function renderModal(state, ui) {
   let content = "";
   let dismissable = true;
+  let type = "";
 
   if (ui.modal) {
     const builders = {
@@ -467,18 +557,22 @@ function renderModal(state, ui) {
       report: modalReport,
       outcome: modalOutcome,
       confirm: modalConfirm,
+      "advance-check": modalAdvanceCheck,
     };
     content = builders[ui.modal.type](state, ui);
     dismissable = ui.modal.type !== "intro";
+    type = ui.modal.type;
   } else if (state.pendingEvent) {
     content = modalEvent(state);
     dismissable = false; // you must make a decision
+    type = "event";
   } else if (state.phase === "ended" && !ui.finalDismissed) {
     content = modalFinal(state);
+    type = "final";
   }
 
   $("modal-root").innerHTML = content
-    ? `<div class="overlay" ${dismissable ? 'data-action="close-modal"' : ""}><div class="modal ${ui.modal ? ui.modal.type : ""}" data-stop>${content}</div></div>`
+    ? `<div class="overlay" ${dismissable ? 'data-action="close-modal"' : ""}><div class="modal ${type}" role="dialog" aria-modal="true" data-stop>${content}</div></div>`
     : "";
 }
 
@@ -509,7 +603,7 @@ function modalIntro(state, ui) {
 function modalHelp() {
   return `${closeButton()}<h2>How to play</h2>
   <ol class="help">
-    <li><b>Pick a village</b> on the map. Weak indicators (red/orange) show where help is needed.</li>
+    <li><b>Pick a village</b> on the map. Weak indicators (red/orange) show where help is needed. Hover an indicator to see what affects it.</li>
     <li><b>Plan interventions.</b> The preview shows the expected effect <i>for that village</i>. The same project works differently in different places.</li>
     <li><b>Watch your limits:</b> available budget, and staff points (each active project uses some).</li>
     <li><b>Advance the month.</b> Projects progress, payments go out, temporary gains fade, and neglected villages lose satisfaction.</li>
@@ -520,8 +614,15 @@ function modalHelp() {
   <p class="small">40% Impact (with extra weight on your weakest village) · 20% Budget efficiency · 15% Community satisfaction · 10% Sustainability · 10% Risk management · 5% Timeliness</p>
   <h3>Tips</h3>
   <ul class="help"><li>A VDC makes later projects in that village safer.</li><li>SHG Training before a Sewing Unit makes the unit 30% stronger.</li><li>Fix water before investing in livelihoods where water is scarce.</li><li>Long projects (3 months) must start by July.</li></ul>
-  <p class="muted small">Your game saves automatically in this browser.</p>`;
+  <p class="muted small">Your game saves automatically in this browser.</p>
+  <div class="modal-actions"><button class="btn ghost" data-action="tutorial-start">Replay the tutorial</button><button class="btn primary" data-action="close-modal">Got it</button></div>`;
 }
+
+const SORTS = [
+  { id: "recommended", label: "Recommended" },
+  { id: "value", label: "Best value" },
+  { id: "cost", label: "Cheapest" },
+];
 
 function modalPicker(state, ui) {
   const v = getVillage(state, ui.selectedVillageId);
@@ -529,25 +630,45 @@ function modalPicker(state, ui) {
   const filters = cats
     .map((c) => `<button class="chip-btn ${ui.pickerCategory === c ? "active" : ""}" data-action="picker-category" data-id="${c}" ${c !== "all" ? `style="--c:${CATEGORIES[c].color}"` : ""}>${c === "all" ? "All" : CATEGORIES[c].label}</button>`)
     .join("");
-  const list = INTERVENTIONS.filter((i) => ui.pickerCategory === "all" || i.category === ui.pickerCategory)
-    .map((item) => interventionCard(state, v, item))
+  const sorts = SORTS.map((s) => `<button class="seg ${ui.pickerSort === s.id ? "active" : ""}" data-action="picker-sort" data-id="${s.id}">${s.label}</button>`).join("");
+
+  // Work out every project's value once, then sort and pick the top 3 to recommend.
+  const rows = INTERVENTIONS.map((item) => {
+    const check = checkCanStart(state, v.id, item.id);
+    const finishes = state.month + item.duration - 1 <= state.maxMonths;
+    return { item, check, finishes, value: projectValue(state, v.id, item.id) };
+  });
+  const recommended = new Set(
+    rows.filter((r) => r.check.ok && r.finishes).sort((a, b) => b.value.score - a.value.score).slice(0, 3).map((r) => r.item.id)
+  );
+  const sorters = {
+    recommended: (a, b) => (b.check.ok && b.finishes) - (a.check.ok && a.finishes) || b.value.score - a.value.score,
+    value: (a, b) => b.value.gainPerLakh - a.value.gainPerLakh,
+    cost: (a, b) => a.item.cost - b.item.cost,
+  };
+  const list = rows
+    .filter((r) => ui.pickerCategory === "all" || r.item.category === ui.pickerCategory)
+    .sort(sorters[ui.pickerSort])
+    .map((r) => interventionCard(state, v, r, recommended.has(r.item.id)))
     .join("");
 
+  const priority = villagePriority(v);
   return `${closeButton()}
   <div class="picker-head">
-    <div><div class="eyebrow" style="color:${VILLAGE_COLORS[v.id]}">Plan an intervention</div><h2>${esc(v.name)}</h2></div>
+    <div><div class="eyebrow" style="color:${VILLAGE_COLORS[v.id]}">Plan an intervention</div><h2>${esc(v.name)}</h2>
+      <div class="small muted">Biggest need: <b class="warn-text">${STAT_LABELS[priority]} (${v.stats[priority]})</b></div></div>
     <div class="picker-res">
       <div><span>Available</span><b>${rupees(budgetAvailable(state))}</b></div>
       <div><span>Staff free</span><b>${staffCapacity(state) - staffInUse(state)} / ${staffCapacity(state)}</b></div>
       <div><span>Month</span><b>${monthName(state.month)}</b></div>
     </div>
   </div>
-  <div class="filters">${filters}</div>
+  <div class="picker-tools"><div class="filters">${filters}</div><div class="segs" aria-label="Sort">${sorts}</div></div>
   <div class="cards-grid">${list}</div>`;
 }
 
-function interventionCard(state, village, item) {
-  const check = checkCanStart(state, village.id, item.id);
+function interventionCard(state, village, row, isRecommended) {
+  const { item, check, value } = row;
   const preview = calculateImpact(state, village.id, item.id, 1);
   const finish = state.month + item.duration - 1;
   const impacts = Object.keys(preview.deltas)
@@ -556,7 +677,8 @@ function interventionCard(state, village, item) {
   const notes = [...preview.notes, ...check.warnings];
   const sustDots = Array.from({ length: 10 }, (_, i) => `<i class="${i < item.sustainability ? "on" : ""}"></i>`).join("");
 
-  return `<article class="icard ${check.ok ? "" : "disabled"}" style="--c:${CATEGORIES[item.category].color}">
+  return `<article class="icard ${check.ok ? "" : "disabled"} ${isRecommended ? "recommended" : ""}" style="--c:${CATEGORIES[item.category].color}">
+    ${isRecommended ? `<div class="rec-flag">★ Recommended</div>` : ""}
     <div class="icard-top"><h4>${item.name}</h4>${categoryChip(item.category)}</div>
     <p class="small muted">${item.description}</p>
     <div class="meta">
@@ -567,6 +689,7 @@ function interventionCard(state, village, item) {
     </div>
     <div class="sust" title="Sustainability ${item.sustainability}/10"><span>Sustainability</span><div class="dots">${sustDots}</div></div>
     <div class="impacts">${impacts}</div>
+    <div class="small muted">${value.addressesPriority ? `<span class="good-text">Tackles the biggest need</span> · ` : ""}${value.gainPerLakh.toFixed(0)} pts per ₹1 lakh</div>
     <div class="small muted">Reaches ${beneficiaryText(item.beneficiaries)}</div>
     ${notes.length ? `<ul class="notes">${notes.map((n) => `<li>${esc(n)}</li>`).join("")}</ul>` : ""}
     <details class="side"><summary>Trade-offs</summary><ul>${item.sideEffects.map((s) => `<li>${esc(s)}</li>`).join("")}</ul></details>
@@ -577,12 +700,46 @@ function interventionCard(state, village, item) {
   </article>`;
 }
 
+function modalAdvanceCheck(state, ui) {
+  const warnings = ui.modal.warnings;
+  return `${closeButton()}<div class="eyebrow">Before you advance</div><h2>End ${monthName(state.month)}?</h2>
+  <p class="muted small">A few things to consider. You can still go back and change your plans.</p>
+  <ul class="report">${warnings.map((w) => `<li class="${w.tone}">${esc(w.text)}</li>`).join("")}</ul>
+  <label class="check"><input type="checkbox" data-action="toggle-skip-check" ${ui.skipAdvanceCheck ? "checked" : ""} /> Don't check again this game</label>
+  <div class="modal-actions"><button class="btn ghost" data-action="close-modal">Go back</button><button class="btn primary" data-action="advance-confirmed">Advance anyway</button></div>`;
+}
+
+// Before/after table so the player sees exactly what the month did.
+function changesTable(state, before) {
+  const keys = [...STAT_KEYS, "satisfaction"];
+  const cell = (now, was) => {
+    const d = now - was;
+    return `<td><span class="tnum">${now}</span>${d ? `<span class="mini ${d > 0 ? "up" : "down"}">${d > 0 ? "+" : ""}${d}</span>` : ""}</td>`;
+  };
+  const head = keys.map((k) => `<th title="${STAT_LABELS[k]}">${STAT_SHORT[k]}</th>`).join("");
+  const rows = state.villages
+    .map((v) => {
+      const was = before.villages[v.id];
+      return `<tr><td><i class="dot" style="background:${VILLAGE_COLORS[v.id]}"></i>${esc(v.name)}</td>${cell(villageIndex(v), was.index)}${keys.map((k) => cell(v.stats[k], was[k])).join("")}</tr>`;
+    })
+    .join("");
+  return `<div class="table-wrap"><table class="table changes"><thead><tr><th>Village</th><th>Index</th>${head}</tr></thead><tbody>${rows}</tbody></table></div>`;
+}
+
 function modalReport(state, ui) {
   const r = ui.modal.report;
+  const before = ui.modal.before;
   const next = state.phase === "ended" ? "See final results" : state.pendingEvent ? "Continue: something has happened…" : `Begin ${monthName(state.month)}`;
+  const indexNow = districtIndex(state);
   return `<div class="eyebrow">Field report</div><h2>End of ${monthName(r.month)}</h2>
   ${r.lines.length ? `<ul class="report">${r.lines.map((l) => `<li class="${l.tone}">${esc(l.text)}</li>`).join("")}</ul>` : `<p class="muted">A quiet month: no progress to report. Did you start any projects?</p>`}
-  <div class="report-stats"><div><span>District index</span><b>${districtIndex(state)}</b></div><div><span>Budget left</span><b>${rupees(budgetRemaining(state))}</b></div><div><span>Satisfaction</span><b>${averageSatisfaction(state)}</b></div></div>
+  ${before ? `<h3>What changed</h3>${changesTable(state, before)}` : ""}
+  <div class="report-stats">
+    <div><span>District index</span><b>${indexNow} ${before ? deltaChip(indexNow - before.index) : ""}</b></div>
+    <div><span>Spent this month</span><b>${rupees(before ? state.budget.spent - before.spent : 0)}</b></div>
+    <div><span>Budget left</span><b>${rupees(budgetRemaining(state))}</b></div>
+    <div><span>Satisfaction</span><b>${averageSatisfaction(state)}</b></div>
+  </div>
   <div class="modal-actions"><button class="btn primary" data-action="close-modal">${next}</button></div>`;
 }
 
@@ -620,7 +777,7 @@ function modalFinal(state) {
   const tone = s.overall >= 80 ? "good" : s.overall >= 60 ? "warn" : "bad";
   const parts = Object.keys(SCORE_WEIGHTS)
     .map((k) => `<div class="score-row"><span>${SCORE_WEIGHTS[k].label} <i class="muted">${SCORE_WEIGHTS[k].weight * 100}%</i></span>
-      <div class="bar"><div class="fill" style="width:${s.parts[k]}%;background:${TONE_COLORS[statTone(s.parts[k])]}"></div></div><b>${s.parts[k]}</b></div>`)
+      <div class="bar">${animatedFill("f." + k, s.parts[k], TONE_COLORS[statTone(s.parts[k])])}</div><b>${s.parts[k]}</b></div>`)
     .join("");
   return `${closeButton()}
   <div class="final">
@@ -632,9 +789,82 @@ function modalFinal(state) {
     ${parts}
     <h3>Why you got this score</h3>
     <ul class="reasons">${s.reasons.map((r) => `<li><b>${SCORE_WEIGHTS[r.key].label}:</b> ${esc(r.text)}</li>`).join("")}</ul>
+    <h3>Your district over six months</h3>
+    ${trendChart(state)}
     <div class="modal-actions"><button class="btn ghost" data-action="close-modal">Review the district</button><button class="btn primary" data-action="new-game">Play again</button></div>
   </div>`;
 }
+
+// ---------------------------------------------------------------------
+// TUTORIAL (first game only — can be replayed from the "?" help)
+// A dark overlay with a "spotlight" hole over one part of the screen,
+// plus a card explaining it. The hole is a box with a giant shadow.
+// ---------------------------------------------------------------------
+const TUTORIAL_STEPS = [
+  { target: ".map-panel", title: "Your district", text: "These are your three villages. The coloured ring shows each village's overall health (its index). Click a village to inspect it." },
+  { target: ".vp-grid", title: "Indicators and problems", text: "Each bar is an indicator from 0 to 100. The white line marks where it started, so you can see your progress. Hover an indicator to learn what affects it." },
+  { target: '[data-action="open-picker"]', title: "Plan interventions", text: "Start projects here. Every project shows its cost, risk and expected effect in this village. The same project works differently in different villages." },
+  { target: "#topstats", title: "Your resources", text: "Available is the money free for new projects. Staff is how many projects your team can run at once. You'll run out of both, so choose carefully." },
+  { target: "#advance-btn", title: "Advance the month", text: "When you're done planning, advance. Projects progress, money is spent and random events may strike. You have six months: April to September." },
+  { target: ".feed-panel", title: "Field updates", text: "Reports from the field appear here after each month. Good luck, Officer!" },
+];
+
+function renderTutorial(state, ui) {
+  const root = $("tutorial-root");
+  const step = TUTORIAL_STEPS[ui.tutorialStep];
+  if (ui.tutorialStep === null || !step || ui.modal || state.pendingEvent) {
+    root.innerHTML = "";
+    delete root.dataset.target;
+    return;
+  }
+  const last = ui.tutorialStep === TUTORIAL_STEPS.length - 1;
+  root.dataset.target = step.target;
+  root.innerHTML = `
+    <div class="tut-block"></div>
+    <div class="tut-spot"></div>
+    <div class="tut-card" role="dialog" aria-label="Tutorial">
+      <div class="eyebrow">Tutorial · ${ui.tutorialStep + 1} of ${TUTORIAL_STEPS.length}</div>
+      <h3>${step.title}</h3>
+      <p>${step.text}</p>
+      <div class="tut-actions">
+        <button class="btn ghost small" data-action="tutorial-skip">Skip tutorial</button>
+        <span>${ui.tutorialStep > 0 ? `<button class="btn small" data-action="tutorial-prev">Back</button>` : ""}
+        <button class="btn primary small" data-action="tutorial-next">${last ? "Start playing" : "Next"}</button></span>
+      </div>
+    </div>`;
+
+  const target = document.querySelector(step.target);
+  if (target) {
+    const r = target.getBoundingClientRect();
+    if (r.top < 80 || r.bottom > window.innerHeight - 20) target.scrollIntoView({ block: "center" });
+  }
+  positionTutorial();
+}
+
+// Called after rendering and whenever the window scrolls or resizes.
+function positionTutorial() {
+  const root = $("tutorial-root");
+  const spot = root.querySelector(".tut-spot");
+  const card = root.querySelector(".tut-card");
+  const target = root.dataset.target && document.querySelector(root.dataset.target);
+  if (!spot || !card || !target) return;
+
+  const vw = window.innerWidth, vh = window.innerHeight, pad = 6;
+  const r = target.getBoundingClientRect();
+  const top = Math.max(4, r.top - pad), left = Math.max(4, r.left - pad);
+  const bottom = Math.min(vh - 4, r.bottom + pad), right = Math.min(vw - 4, r.right + pad);
+  Object.assign(spot.style, { top: top + "px", left: left + "px", width: right - left + "px", height: Math.max(0, bottom - top) + "px" });
+
+  const cw = card.offsetWidth, ch = card.offsetHeight;
+  let cardTop = bottom + 12;
+  if (cardTop + ch > vh - 12) cardTop = top - 12 - ch; // no room below → above
+  if (cardTop < 12) cardTop = vh - ch - 16; // target fills the screen → pin to bottom
+  const cardLeft = clamp(left, 16, vw - cw - 16);
+  Object.assign(card.style, { top: cardTop + "px", left: cardLeft + "px" });
+}
+
+window.addEventListener("resize", positionTutorial);
+window.addEventListener("scroll", positionTutorial, { passive: true });
 
 // ---------------------------------------------------------------------
 // TOASTS (small temporary messages)
@@ -643,6 +873,7 @@ function showToast(text, tone) {
   const el = document.createElement("div");
   el.className = `toast ${tone || ""}`;
   el.textContent = text;
+  el.setAttribute("role", "status");
   $("toast-root").appendChild(el);
   setTimeout(() => el.classList.add("hide"), 2600);
   setTimeout(() => el.remove(), 3100);
