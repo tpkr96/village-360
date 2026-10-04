@@ -1,0 +1,71 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Village 360: District Development Simulator</title>
+  <meta name="description" content="A browser strategy game: develop three Telangana villages in six months with a limited budget." />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@500;600;700&family=IBM+Plex+Sans:wght@400;500;600&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="css/style.css" />
+</head>
+<body>
+  <!-- TOP BAR: month timeline, key numbers, main actions -->
+  <header class="topbar">
+    <div class="brand">
+      <div class="brand-mark">V<span>360</span></div>
+      <div>
+        <div class="brand-title">VILLAGE 360</div>
+        <div class="brand-sub">District Development Simulator</div>
+      </div>
+    </div>
+    <div id="timeline" class="timeline"></div>
+    <div id="topstats" class="topstats"></div>
+    <div class="top-actions">
+      <button class="btn ghost" data-action="help" title="How to play">?</button>
+      <button class="btn ghost" data-action="new-game-confirm">New game</button>
+      <button id="advance-btn" class="btn primary" data-action="advance">Advance Month →</button>
+    </div>
+  </header>
+
+  <!-- MAIN LAYOUT: map, village profile, dashboard tabs, field updates -->
+  <main class="layout">
+    <section class="panel map-panel">
+      <div class="panel-head">
+        <h2>District Map</h2>
+        <span class="muted small">Kothapet District · fictional</span>
+      </div>
+      <div id="map" class="map"></div>
+      <div id="map-legend" class="legend"></div>
+    </section>
+
+    <section class="panel village-panel" id="village-panel"></section>
+
+    <section class="panel dash-panel">
+      <div class="tabs" id="tabs"></div>
+      <div id="tab-content"></div>
+    </section>
+
+    <section class="panel feed-panel">
+      <div class="panel-head"><h2>Field Updates</h2></div>
+      <div id="feed" class="feed"></div>
+    </section>
+  </main>
+
+  <div id="modal-root"></div>
+  <div id="toast-root" class="toast-root"></div>
+
+  <!-- Scripts load IN ORDER: data first, then state, rules, scoring,
+       saving, drawing, and finally app.js which starts everything. -->
+  <script src="js/villages.js"></script>
+  <script src="js/interventions.js"></script>
+  <script src="js/gameState.js"></script>
+  <script src="js/events.js"></script>
+  <script src="js/gameLogic.js"></script>
+  <script src="js/scoring.js"></script>
+  <script src="js/storage.js"></script>
+  <script src="js/ui.js"></script>
+  <script src="js/app.js"></script>
+</body>
+</html>

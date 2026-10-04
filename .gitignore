@@ -1,0 +1,10 @@
+# OS / editor files
+.DS_Store
+Thumbs.db
+.vscode/
+
+# Future backend (Version 3+)
+.env
+__pycache__/
+venv/
+node_modules/
